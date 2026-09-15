@@ -607,6 +607,61 @@ def ensure_issuer(con, name: str):
         return None
 
 
+# ---------------- 机构目录名 → 机构信息 ----------------
+# 入库按「待入库_v2/{机构名}/」的目录名区分来源。新增一个源只需改这两张表。
+ORG_FALLBACK = {
+    "人民银行": "中国人民银行",
+    "国家金融监督管理总局": "国家金融监督管理总局",
+    "国家外汇管理局": "国家外汇管理局",
+}
+ORG_SHORT = {
+    "人民银行": "pbc",
+    "国家金融监督管理总局": "nfra",
+    "国家外汇管理局": "safe",
+}
+
+
+def org_fallback(org: str) -> str:
+    """兜底发布机构：文号前缀与标题机构名都识别不出来时用它。"""
+    return ORG_FALLBACK.get(org, org)
+
+
+def org_code(org: str) -> str:
+    """source_id 里的机构短码（用于 iweicha file_id 跨机构撞号的消歧）。"""
+    return ORG_SHORT.get(org, "other")
+
+
+_FW_DIGITS = str.maketrans("０１２３４５６７８９", "0123456789")
+
+
+def norm_docno(s: str) -> str:
+    """文号归一化 —— **仅用于判重比较，不写库**。
+
+    不同来源的文号写法常有出入，直接比字符串会漏判（把重复当新版放行）：
+        国务院令 第297号      vs  国务院令第297号      （空格）
+        银监发〔2006〕７号     vs  银监发〔2006〕27号   （全角数字；数据本身也可能有出入）
+    """
+    if not s:
+        return ""
+    t = (s or "").translate(_FW_DIGITS).replace("\u3000", " ")
+    t = re.sub(r"\s+", "", t)
+    t = t.replace("[", "〔").replace("]", "〕").replace("(", "（").replace(")", "）")
+    return t
+
+
+# 版本感知判重的**适用来源**（按 source_id 前缀）。
+#
+#   背景：norm_title 会剥掉（已废止）/（已修改）这类括号前缀，于是同一部法规的
+#   历次修订版归一化后完全同名。只按标题跳过就会误杀 —— 外汇局把 1987 年以来的
+#   所有版本都挂在网上，实测 558 条里有 25 条会被误杀。
+#   所以对 safe: 来源，标题相同时**再比文号**：双方都有且不同 → 判为不同版本，放行。
+#
+#   ⚠️ 暂不对人行 / 金监总局启用：那两站基本只挂最新版，启用会让现有 2897 条多出
+#      9 条历史版本。那 9 条本身是漏收（文号、日期、正文都不同），数据是对的，
+#      但属于超出「接入外汇局」范围的变化，留待后续单独评估后再开。
+VERSION_AWARE_SOURCES = ("safe",)
+
+
 def detect_issuers(title: str, org: str, con=None):
     """返回 [(issuer_id, is_primary)]"""
     t = title or ""
@@ -635,8 +690,7 @@ def detect_issuers(title: str, org: str, con=None):
                 out.append((iid, 0))
     # 4) 兜底：来源机构
     if not out:
-        fallback = "中国人民银行" if org == "人民银行" else "国家金融监督管理总局"
-        iid = I_ID.get(fallback)
+        iid = I_ID.get(org_fallback(org))
         if iid:
             out.append((iid, 1))
     # 5) 排序：牵头机关优先，其余按在标题中出现的先后
@@ -700,19 +754,29 @@ def run_regs(tu: Path, dry: bool = False, verbose: bool = False) -> dict:
     load_dicts(con)
 
     # 已有记录（判重）
-    #   三档键：① 标题归一化  ② 文号  ③ source_id（来源唯一 ID）
-    #   ⚠️ source_id 这一档是必需的：像「中国人民银行 公告」「××公告（2013年第21号）」
-    #      这类标题归一化后为空/过短的条目，标题与文号都拦不住，只能靠 source_id；
-    #      否则每次重跑都会把它们重复灌一遍，破坏幂等。
-    existing = {}
+    #   三档键，优先级：① 文号  ② source_id  ③ 标题
+    #   ⚠️ source_id 档必需：像「中国人民银行 公告」这类标题归一化后为空/过短的
+    #      条目，标题与文号都拦不住，只能靠它，否则每次重跑都会重复灌一遍。
+    #   ⚠️ 标题档必须能区分「重复」与「同一法规的历次修订版」：
+    #      外汇局把 1987 年以来的所有版本都挂在网上，而 norm_title 会把
+    #      （已废止）/（已修改）前缀剥掉，同族版本归一化后完全同名。
+    #      只按标题跳过，实测会误杀 25 条本该入库的修订版（535 → 510）。
+    #      所以标题档还要比文号：双方都存在且不同 → 判为不同版本，放行。
+    ex_title: dict = {}     # 归一化标题 -> [(rid, doc_no), ...]
+    ex_no: dict = {}        # 文号 -> rid
+    ex_sid: dict = {}       # source_id -> rid
     for rid, ti, dn, sid in con.execute(
             "SELECT id, title, COALESCE(doc_number,''), COALESCE(source_id,'') FROM regulation"):
-        existing[norm_title(ti)] = rid
-        if dn:
-            existing["#NO#" + dn] = rid
+        nt0 = norm_title(ti)
+        if nt0:
+            ex_title.setdefault(nt0, []).append((rid, norm_docno(dn)))
+        nd0 = norm_docno(dn)
+        if nd0:
+            ex_no[nd0] = rid
         if sid:
-            existing["#SID#" + sid] = rid
-    print(f"        库内现有: {len(existing)} 键", flush=True)
+            ex_sid[sid] = rid
+    print(f"        库内现有: 标题 {len(ex_title)} | 文号 {len(ex_no)} | 来源 {len(ex_sid)} 键",
+          flush=True)
 
     today = date.today().isoformat()
     stat = {"total": 0, "skip_excl": 0, "skip_dupe": 0, "ins": 0, "issuer_link": 0, "cat_link": 0}
@@ -735,8 +799,7 @@ def run_regs(tu: Path, dry: bool = False, verbose: bool = False) -> dict:
                 stat["skip_excl"] += 1
                 continue
             # 唯一 source_id：iweicha 的 file_id 跨机构会撞号，加机构后缀区分
-            org_short = "pbc" if org == "人民银行" else "nfra"
-            uniq_sid = sid.replace("iweicha:", f"iweicha-{org_short}:", 1) \
+            uniq_sid = sid.replace("iweicha:", f"iweicha-{org_code(org)}:", 1) \
                 if sid.startswith("iweicha:") else sid
             d = org_dir / r["dir_name"]
             ct = d / "content.txt"
@@ -751,19 +814,27 @@ def run_regs(tu: Path, dry: bool = False, verbose: bool = False) -> dict:
 
             title = clean_title(r["title"])
             doc_no = meta.get("doc_number") or extract_doc_no(title)
+            ndoc = norm_docno(doc_no)      # 仅判重用
             nt = norm_title(title)
             # 标题归一化后过短（如「令」「公告〔2026〕第4号」）无法互相区分，
             # 这类只靠文号判重，否则会把一批不同文件误判成重复
             title_usable = len(nt) >= 6
 
-            # 三档判重：标题 / 文号 / source_id
+            # 三档判重，优先级：文号 > source_id > 标题
+            version_aware = uniq_sid.split(":", 1)[0] in VERSION_AWARE_SOURCES
             dup_why = ""
-            if title_usable and nt in existing:
-                dup_why = "标题"
-            elif doc_no and "#NO#" + doc_no in existing:
+            if ndoc and ndoc in ex_no:
                 dup_why = f"文号[{doc_no}]"
-            elif "#SID#" + uniq_sid in existing:
+            elif uniq_sid in ex_sid:
                 dup_why = f"来源[{uniq_sid}]"
+            elif title_usable and nt in ex_title:
+                # 同标题时：仅对启用版本感知的来源再比文号
+                # 双方都有且不同 → 同一法规的历次修订版，放行
+                peers = {d for _, d in ex_title[nt] if d}
+                if version_aware and ndoc and peers and ndoc not in peers:
+                    dup_why = ""
+                else:
+                    dup_why = "标题"
             if dup_why:
                 stat["skip_dupe"] += 1
                 if verbose and stat["skip_dupe"] <= 30:
@@ -788,11 +859,12 @@ def run_regs(tu: Path, dry: bool = False, verbose: bool = False) -> dict:
                     print(f"          [{hname}] {title[:44]}", flush=True)
                     print(f"                文号={doc_no or '-'} 机构={names} 分类={cid}", flush=True)
                 stat["ins"] += 1
-                if title_usable:
-                    existing[nt] = -1
-                if doc_no:
-                    existing["#NO#" + doc_no] = -1
-                existing["#SID#" + uniq_sid] = -1
+                if title_usable and nt:
+                    ex_title.setdefault(nt, []).append((-1, ndoc))
+                if ndoc:
+                    ex_no[ndoc] = -1
+                if uniq_sid:
+                    ex_sid[uniq_sid] = -1
                 continue
 
             cur = con.execute(
@@ -803,7 +875,7 @@ def run_regs(tu: Path, dry: bool = False, verbose: bool = False) -> dict:
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (title, doc_no,
                  "、".join([k for k, v in I_ID.items() if v in [i for i, _ in issuers]][:1]) or
-                 ("中国人民银行" if org == "人民银行" else "国家金融监督管理总局"),
+                 org_fallback(org),
                  hname, "全国性", meta.get("status", ""),
                  meta.get("pub_date", ""), "", content,
                  str(d), r.get("original_url", "") or r.get("detail_url", ""),
@@ -822,11 +894,12 @@ def run_regs(tu: Path, dry: bool = False, verbose: bool = False) -> dict:
             for c in cids:
                 con.execute("INSERT OR IGNORE INTO reg_category (reg_id, cat_id) VALUES (?,?)", (rid, c))
                 stat["cat_link"] += 1
-            if title_usable:
-                existing[nt] = rid
-            if doc_no:
-                existing["#NO#" + doc_no] = rid
-            existing["#SID#" + uniq_sid] = rid
+            if title_usable and nt:
+                ex_title.setdefault(nt, []).append((rid, ndoc))
+            if ndoc:
+                ex_no[ndoc] = rid
+            if uniq_sid:
+                ex_sid[uniq_sid] = rid
             stat["ins"] += 1
 
     if not dry:

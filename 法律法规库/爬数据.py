@@ -3,22 +3,24 @@
 爬数据.py —— 阶段一：抓取原始数据（法规库流水线）
 ====================================================
 把「法规库」所需的原始数据全部抓到本地磁盘。本文件是**单文件自包含**的，
-按顺序一次跑完下面 6 步；任何一步失败只跳过该步，不影响后续步骤。
+按顺序一次跑完下面 7 步；任何一步失败只跳过该步，不影响后续步骤。
 
     步骤 1  爬取 NFRA（国家金融监督管理总局）政策规章规范性文件
     步骤 2  爬取人民银行（行政法规 / 部门规章 / 规范性文件）
-    步骤 3  爬取 iweicha 监管文件（金监局 / 人行 / 外汇局，纯文字版）
-    步骤 4  汇总 iweicha 索引（生成 iweicha/_index.csv）
-    步骤 5  补取原文链接（接管浏览器点「原文链接」按钮，回写 _meta.json）
-    步骤 6  补全「正文在附件里」的条目：
-              6.1 下载附件（PDF / doc / xls …）
-              6.2 文字型 PDF → pypdf 提取正文
-              6.3 扫描型 PDF → OCR（本地 RapidOCR 优先，失败/缺失则走远程服务）
+    步骤 3  爬取国家外汇管理局「政策法规」（全栏目聚合视图，28 页取全量）
+    步骤 4  爬取 iweicha 监管文件（金监局 / 人行 / 外汇局，纯文字版）
+    步骤 5  汇总 iweicha 索引（生成 iweicha/_index.csv）
+    步骤 6  补取原文链接（接管浏览器点「原文链接」按钮，回写 _meta.json）
+    步骤 7  补全「正文在附件里」的条目：
+              7.1 下载附件（PDF / doc / xls …）
+              7.2 文字型 PDF → pypdf 提取正文
+              7.3 扫描型 PDF → OCR（本地 RapidOCR 优先，失败/缺失则走远程服务）
 
 输出目录（均在项目根下）：
     政策规章规范性文件/{docId}_{标题}/      detail.json list_record.json content.html content.txt _meta.json
     人民银行/{栏目}/{articleId}_{标题}/     detail.json content.html content.txt _meta.json attachments/
     国家金融监督管理总局/{栏目}/{id}_{标题}/ 同上
+    外汇局/政策法规/{articleId}_{标题}/      detail.html content.html content.txt _meta.json
     iweicha/{机构}/{年份}/{fileId}_{标题}/  detail.html content.txt _meta.json
     iweicha/_index.csv                     汇总索引
 
@@ -28,7 +30,7 @@
 
 用法：
     python 爬数据.py                    # 全流程（断点续传，已完成的自动跳过）
-    python 爬数据.py --only nfra        # 只跑某一步（nfra/pbc/iweicha/ocr/…）
+    python 爬数据.py --only safe        # 只跑某一步（nfra/pbc/safe/iweicha/links/attachments）
     python 爬数据.py --skip-link        # 跳过「补取原文链接」（省时间）
     python 爬数据.py --dry-run          # 只盘点，不实际抓取
     python 爬数据.py --workers 6        # 各步并发数（默认见各处）
@@ -331,7 +333,7 @@ def nfra_get_json(url: str, params: dict, timeout: int = NFRA_TIMEOUT,
 # ---------------------------- 阶段1：列表分页 ----------------------------
 def nfra_fetch_list(total_pages: int | None = None) -> list[dict]:
     """抓取所有列表项，写盘 NFRA_LIST_JSON 做快照。"""
-    print(f"[1/6] 抓取 NFRA 列表（{total_pages or '全量'} 页 / 每页 {NFRA_PAGE_SIZE} 条）…",
+    print(f"[1/7] 抓取 NFRA 列表（{total_pages or '全量'} 页 / 每页 {NFRA_PAGE_SIZE} 条）…",
           flush=True)
     first = nfra_get_json(NFRA_HOST + NFRA_LIST_API, {
         "itemId": NFRA_ITEM_ID, "pageSize": NFRA_PAGE_SIZE, "pageIndex": 1,
@@ -538,10 +540,10 @@ def run_nfra(workers: int = NFRA_WORKERS_DEFAULT, pages: int | None = None,
     NFRA_OUT.mkdir(parents=True, exist_ok=True)
     if dry:
         n = len(list(NFRA_OUT.glob("*/_meta.json")))
-        print(f"[1/6] NFRA 盘点：已有 {n} 条", flush=True)
+        print(f"[1/7] NFRA 盘点：已有 {n} 条", flush=True)
         return {"step": "nfra", "dry": True, "existing": n}
 
-    print("[1/6] 初始化 NFRA session cookie …", flush=True)
+    print("[1/7] 初始化 NFRA session cookie …", flush=True)
     nfra_init_session()
 
     if NFRA_LIST_JSON.exists():
@@ -579,7 +581,7 @@ def run_nfra(workers: int = NFRA_WORKERS_DEFAULT, pages: int | None = None,
                 last_report = time.time()
 
     nfra_write_index(rows)
-    print(f"[1/6] NFRA 完成：成功 {ok}/{total}，失败 {len(fail)}", flush=True)
+    print(f"[1/7] NFRA 完成：成功 {ok}/{total}，失败 {len(fail)}", flush=True)
     if fail:
         with (NFRA_OUT / "_fail.csv").open("w", encoding="utf-8-sig", newline="") as fp:
             w = csv.writer(fp)
@@ -886,7 +888,7 @@ def run_pbc(workers: int = PBC_WORKERS_DEFAULT, dry: bool = False) -> dict:
     tot_ok = tot_fail = 0
 
     for col_id, col_name in PBC_COLUMNS:
-        print(f"[2/6] 爬取人行 · {col_name} …", flush=True)
+        print(f"[2/7] 爬取人行 · {col_name} …", flush=True)
         if dry:
             n = len(list((PBC_ROOT / col_name).glob("*/_meta.json"))) \
                 if (PBC_ROOT / col_name).is_dir() else 0
@@ -947,13 +949,386 @@ def run_pbc(workers: int = PBC_WORKERS_DEFAULT, dry: bool = False) -> dict:
 
     if not dry:
         pbc_write_index(all_rows)
-        print(f"[2/6] 人行索引写入（{len(all_rows)} 条）", flush=True)
-    print(f"[2/6] 人行完成：成功 {tot_ok}，失败 {tot_fail}", flush=True)
+        print(f"[2/7] 人行索引写入（{len(all_rows)} 条）", flush=True)
+    print(f"[2/7] 人行完成：成功 {tot_ok}，失败 {tot_fail}", flush=True)
     return {"step": "pbc", "ok": tot_ok, "fail": tot_fail}
 
 
 # ============================================================================
-# 步骤 3：爬取 iweicha
+# 步骤 3：爬取国家外汇管理局「政策法规」
+#
+#   两点关键（都是实测结论，别改）：
+#   1) /safe/zcfg/ 是 21 个栏目的**全量聚合视图**。实测它与 20 个专栏目
+#      双向差集均为 0（各 558 条）→ 只抓它 28 页即得全部条目，
+#      不需要逐栏目抓 59 页。栏目标签不会丢，它写在详情页 <title> 里。
+#   2) 详情页 div.detail_conbg 是一张标准公文元数据表（索引号/分类/来源/
+#      发布日期/名称/文号），**逐字段直取**，不必从正文正则里猜。
+#      注意：标题里含文号的只有 16/558，所以文号必须走这个元数据区。
+# ============================================================================
+SAFE_HOST = "https://www.safe.gov.cn"
+SAFE_ZCFG = "/safe/zcfg"
+SAFE_ROOT = ROOT / "外汇局"
+SAFE_OUT = SAFE_ROOT / "政策法规"
+SAFE_COLS = ["政策法规"]
+SAFE_COL_NAME = "政策法规"
+
+SAFE_TIMEOUT = 30
+SAFE_MAX_RETRY = 3
+
+# 限速（重要）：该站没有 WAF、响应只要 0.3 秒，但仍是政务站，按「礼貌速率」抓。
+#   4 并发 × 平均 0.9 秒间隔 ≈ 4.4 请求/秒；558 条详情预计 2~3 分钟。
+#   想更慢就调小并发：--workers 1 → 约 1.1 请求/秒（全程约 9 分钟）。
+SAFE_WORKERS_DEFAULT = 4
+SAFE_LIST_WORKERS = 2
+SAFE_DELAY_MIN = 0.6            # 每次请求前的随机等待下界（秒）
+SAFE_DELAY_MAX = 1.2            # 上界
+
+SAFE_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+           "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+SAFE_HEADERS = {
+    "User-Agent": SAFE_UA,
+    "Accept": "text/html,application/xhtml+xml",
+    "Accept-Language": "zh-CN,zh;q=0.9",
+    "Referer": SAFE_HOST + "/",
+}
+
+# 列表项：<a href="/safe/YYYY/MMDD/ID.html">标题</a> …… YYYY-MM-DD
+#   MMDD 是**一个**路径段（如 2026/0617/27579.html），别按 YYYY/MM/DD 拆
+SAFE_ITEM_RE = re.compile(
+    r'<a[^>]+href=["\'](/safe/\d{4}/\d{4}/(\d+)\.html)["\'][^>]*>(.*?)</a>'
+    r'((?:(?!<a\s)[\s\S]){0,300}?)(\d{4}-\d{2}-\d{2})', re.I)
+# 总页数藏在「尾页」链接里（该站不用「共N页」文本）
+SAFE_TAIL_RE = re.compile(
+    r'title=["\']尾页["\'][^>]*href=["\']([^"\']*index_(\d+)\.html)["\']'
+    r'|href=["\']([^"\']*index_(\d+)\.html)["\'][^>]*title=["\']尾页["\']', re.I)
+SAFE_META_BLOCK_RE = re.compile(
+    r'<div[^>]+class=["\'][^"\']*detail_conbg[^"\']*["\'][^>]*>', re.I)
+SAFE_BODY_RE = re.compile(
+    r'<div[^>]+id=["\']content["\'][^>]*class=["\'][^"\']*detail_content'
+    r'|<div[^>]+class=["\'][^"\']*detail_content[^"\']*["\']', re.I)
+SAFE_META_LI_RE = re.compile(r"<li\b[^>]*>([\s\S]*?)</li>", re.I)
+SAFE_META_DT_RE = re.compile(r"<dt\b[^>]*>([\s\S]*?)</dt>", re.I)
+SAFE_META_DD_RE = re.compile(r"<dd\b[^>]*>([\s\S]*?)</dd>", re.I)
+SAFE_META_LABELS = {
+    "索引号": "index_no", "分类": "classify", "来源": "source",
+    "发布日期": "pub_date", "名称": "name", "文号": "doc_no",
+}
+
+
+def _safe_txt(seg: str) -> str:
+    """去标签 + 把 nbsp 等所有空白压成单个空格。
+
+    ⚠️ 元数据区的标签是用 &nbsp; 对齐的（「索\\xa0\\xa0引\\xa0\\xa0号：」），
+       而 html_to_text 不转换 nbsp，所以必须用 \\s 正则而不是 str.replace(" ")。
+    """
+    return re.sub(r"[\s\u3000\u00a0]+", " ", html_to_text(seg)).strip()
+
+
+def safe_http_get(url: str, timeout: int = SAFE_TIMEOUT) -> str:
+    """外汇局是纯静态页：不需要 cookie、不需要 session、不需要 JS 渲染。
+    与人行官网、金监总局那套 F5 WAF / cookiejar 完全不同，直接取即可。
+
+    限速：每次请求前先随机等待 SAFE_DELAY_MIN~MAX 秒（带 jitter，与 NFRA / PBC 同款做法）。
+    重试时在此基础上再叠加退避。
+    """
+    last = None
+    for i in range(SAFE_MAX_RETRY):
+        time.sleep(random.uniform(SAFE_DELAY_MIN, SAFE_DELAY_MAX))
+        try:
+            req = urllib.request.Request(url, headers=SAFE_HEADERS)
+            raw = urllib.request.urlopen(req, timeout=timeout).read()
+            if raw[:2] == b"\x1f\x8b":
+                import gzip
+                raw = gzip.decompress(raw)
+            return raw.decode("utf-8", "replace")
+        except Exception as e:
+            last = e
+            time.sleep(1 + i * 2 + random.uniform(0, 0.5))
+    raise last
+
+
+def safe_list_url(page: int) -> str:
+    return (f"{SAFE_HOST}{SAFE_ZCFG}/index.html" if page == 1
+            else f"{SAFE_HOST}{SAFE_ZCFG}/index_{page}.html")
+
+
+def safe_total_pages(html: str) -> int:
+    m = SAFE_TAIL_RE.search(html)
+    if not m:
+        return 1
+    g = m.group(2) or m.group(4)
+    return int(g) if g and g.isdigit() else 1
+
+
+def safe_parse_list_page(html: str) -> list[dict]:
+    rows = []
+    for m in SAFE_ITEM_RE.finditer(html):
+        href, aid, title_raw, date = m.group(1), m.group(2), m.group(3), m.group(5)
+        title = re.sub(r"\s+", " ", html_to_text(title_raw)).strip()
+        if not aid or not title:
+            continue
+        rows.append({"article_id": aid, "href": href,
+                     "title": title, "date": date, "url": SAFE_HOST + href})
+    return rows
+
+
+def safe_fetch_list() -> list[dict]:
+    print(f"      [列表] {SAFE_COL_NAME}（{SAFE_ZCFG}，全栏目聚合）", flush=True)
+    p1 = safe_http_get(safe_list_url(1))
+    rows = safe_parse_list_page(p1)
+    total = safe_total_pages(p1)
+    print(f"        第 1 页：{len(rows)} 条 · 共 {total} 页", flush=True)
+    if total > 1:
+        with ThreadPoolExecutor(max_workers=SAFE_LIST_WORKERS) as pool:
+            futures = {pool.submit(safe_http_get, safe_list_url(n)): n
+                       for n in range(2, total + 1)}
+            for fut in as_completed(futures):
+                n = futures[fut]
+                try:
+                    rows.extend(safe_parse_list_page(fut.result()))
+                except Exception as e:
+                    print(f"        第 {n} 页失败：{e}", flush=True)
+    seen, uniq = set(), []
+    for r in rows:
+        if r["article_id"] in seen:
+            continue
+        seen.add(r["article_id"])
+        uniq.append(r)
+    print(f"        总计（去重）：{len(uniq)} 条", flush=True)
+    return uniq
+
+
+def safe_parse_meta_block(html: str) -> dict:
+    """解析 detail_conbg 里的公文元数据表。
+
+    真实结构是 <ul><li><dt>标签：</dt><dd>值</dd></li>…</ul>，
+    所以按 <li> 逐对取 <dt>/<dd> 最稳。
+
+    ⚠️ 不能用「标签行 + 取下一行当值」的文本法：很多老文件**没有文号**，
+       值是空的（<dd id="wh"></dd>），空行会被过滤掉，于是会把后面
+       正文的第一行当成值 —— 实测把「文号」抓成了标题、「分类」抓成了
+       「来 源：」这个标签本身。
+    """
+    m = SAFE_META_BLOCK_RE.search(html)
+    if not m:
+        return {}
+    res = pbc_extract_balanced_div(html, m.start())
+    if not res:
+        return {}
+    out: dict = {}
+    for li in SAFE_META_LI_RE.findall(res[1]):
+        md = SAFE_META_DT_RE.search(li)
+        mv = SAFE_META_DD_RE.search(li)
+        if not md or not mv:
+            continue
+        key = re.sub(r"[\s\u3000\u00a0]+", "", html_to_text(md.group(1))).rstrip("：:").strip()
+        field = SAFE_META_LABELS.get(key)
+        if field and field not in out:
+            out[field] = _safe_txt(mv.group(1))
+    return out
+
+
+def safe_extract_content(html: str) -> tuple[str, str, str, str]:
+    """返回 (完整标题, 栏目名, content_html, content_text)。
+
+    <title> 形如「{标题}_{栏目名}_国家外汇管理局门户网站」，从右往左切两刀最稳。
+    """
+    m = re.search(r"<title>(.*?)</title>", html, re.S | re.I)
+    title = _safe_txt(html_lib.unescape(m.group(1))) if m else ""
+    col = ""
+    parts = title.rsplit("_", 2)
+    if len(parts) == 3 and parts[2].startswith("国家外汇管理局"):
+        title, col = parts[0].strip(), parts[1].strip()
+
+    content_html = ""
+    mb = SAFE_BODY_RE.search(html)
+    if mb:
+        res = pbc_extract_balanced_div(html, mb.start())
+        if res:
+            full = res[1]
+            open_end = full.find(">") + 1
+            inner = full[open_end:]
+            if inner.rstrip().lower().endswith("</div>"):
+                inner = inner.rstrip()[: -len("</div>")]
+            content_html = inner.strip()
+
+    text = re.sub(r"<style[^>]*>.*?</style>", "", content_html, flags=re.S | re.I)
+    text = re.sub(r"<script[^>]*>.*?</script>", "", text, flags=re.S | re.I)
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.I)
+    text = re.sub(r"</p>|</div>|</tr>|</li>", "\n", text, flags=re.I)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = (text.replace("&nbsp;", " ").replace("&amp;", "&")
+                .replace("&lt;", "<").replace("&gt;", ">")
+                .replace("&quot;", "\"").replace("&#39;", "'"))
+    text = re.sub(r"[ \t\u00a0\u3000]+", " ", text)
+    text = re.sub(r"\n\s*\n+", "\n\n", text)
+    return title, col, content_html, text.strip()
+
+
+def safe_folder(article_id: str, title: str) -> str:
+    return f"{article_id}_{safe_name(title)}"
+
+
+def safe_fetch_one(row: dict) -> tuple[bool, dict]:
+    """抓一条详情。返回 (ok, meta)。"""
+    aid = row["article_id"]
+    folder = SAFE_OUT / safe_folder(aid, row.get("title", ""))
+    meta_path = folder / "_meta.json"
+    if meta_path.exists():
+        meta = load_json(meta_path, {})
+        if meta.get("ok") and meta.get("has_content"):
+            return True, meta
+
+    url = row.get("url") or (SAFE_HOST + row.get("href", ""))
+    try:
+        html = safe_http_get(url)
+    except Exception as e:
+        return False, {"article_id": aid, "ok": False, "error": str(e)[:200]}
+    if not html or len(html) < 500:
+        return False, {"article_id": aid, "ok": False, "error": "empty/too short"}
+
+    title_real, col, content_html, content_text = safe_extract_content(html)
+    blk = safe_parse_meta_block(html)
+
+    # 标题来源优先级：元数据「名 称」> 详情页 <title> > 列表页标题
+    title = (blk.get("name") or title_real or row.get("title") or "").strip()
+    # 列表页标题有截断（558 条里 155 条带 …），只能当兜底，不能当判重依据
+    if title != row.get("title"):
+        folder = SAFE_OUT / safe_folder(aid, title)
+
+    atts = []
+    for href in re.findall(r'<a[^>]+href=["\']([^"\']+)["\']', html, re.I):
+        if not ATT_PAT.search(href):
+            continue
+        href = href.strip()
+        if href.startswith("http"):
+            full = href
+        elif href.startswith("//"):
+            full = "https:" + href
+        elif href.startswith("/"):
+            full = SAFE_HOST + href
+        else:
+            full = SAFE_HOST + "/" + href
+        if full not in [a["url"] for a in atts]:
+            atts.append({"url": full, "name": att_filename(full)})
+
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "detail.html").write_text(html, encoding="utf-8", errors="replace")
+    (folder / "content.html").write_text(content_html, encoding="utf-8")
+    (folder / "content.txt").write_text(content_text, encoding="utf-8")
+
+    meta = {
+        "article_id": aid,
+        "col_name": col or SAFE_COL_NAME,
+        "title": title or row.get("title", ""),
+        "list_title": row.get("title", ""),
+        "doc_number": blk.get("doc_no", ""),
+        "pub_date": blk.get("pub_date") or row.get("date", ""),
+        "source": blk.get("source", ""),
+        "classify": blk.get("classify", ""),
+        "index_no": blk.get("index_no", ""),
+        "url": url,
+        "ok": True,
+        "has_content": bool(content_html.strip()),
+        "content_len": len(content_html),
+        "attachments": atts,
+        "fetched_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    dump_json(meta_path, meta)
+    return True, meta
+
+
+def safe_write_index(rows: list[dict], metas: dict) -> None:
+    SAFE_ROOT.mkdir(parents=True, exist_ok=True)
+    with (SAFE_ROOT / "_index.csv").open("w", encoding="utf-8-sig", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["colName", "articleId", "title", "docNo", "pubDate", "source",
+                    "classify", "indexNo", "url", "ok", "has_content",
+                    "content_len", "attachments", "folder"])
+        for r in rows:
+            m = metas.get(r["article_id"], {})
+            w.writerow([
+                m.get("col_name", SAFE_COL_NAME), r["article_id"],
+                m.get("title") or r.get("title", ""),
+                m.get("doc_number", ""), m.get("pub_date") or r.get("date", ""),
+                m.get("source", ""), m.get("classify", ""), m.get("index_no", ""),
+                r.get("url", ""),
+                "Y" if m.get("ok") else "N",
+                "Y" if m.get("has_content") else "N",
+                m.get("content_len", 0),
+                len(m.get("attachments", []) or []),
+                safe_folder(r["article_id"], m.get("title") or r.get("title", "")),
+            ])
+
+
+def run_safe(workers: int = SAFE_WORKERS_DEFAULT, dry: bool = False,
+             limit: int | None = None) -> dict:
+    print(f"[3/7] 爬取外汇局 · {SAFE_COL_NAME}（zcfg 全栏目聚合）…", flush=True)
+
+    if dry:
+        n = len(list(SAFE_OUT.glob("*/_meta.json"))) if SAFE_OUT.is_dir() else 0
+        print(f"      [dry] 已有 {n} 条", flush=True)
+        return {"step": "safe", "dry": True, "existing": n}
+
+    SAFE_ROOT.mkdir(parents=True, exist_ok=True)
+
+    list_json = SAFE_ROOT / "_list.json"
+    if list_json.exists():
+        rows = load_json(list_json, [])
+        print(f"        复用 {list_json.name}（{len(rows)} 条）", flush=True)
+    else:
+        rows = safe_fetch_list()
+        dump_json(list_json, rows)      # 缓存全量列表（limit 之前）
+
+    if limit:
+        rows = rows[:limit]
+        print(f"        [limit] 本次只抓前 {len(rows)} 条", flush=True)
+
+    SAFE_OUT.mkdir(parents=True, exist_ok=True)
+    skip, todo = 0, []
+    metas: dict = {}
+    for r in rows:
+        mp = SAFE_OUT / safe_folder(r["article_id"], r.get("title", "")) / "_meta.json"
+        m = load_json(mp, {}) if mp.exists() else {}
+        if m.get("ok") and m.get("has_content"):
+            metas[r["article_id"]] = m
+            skip += 1
+        else:
+            todo.append(r)
+    print(f"        跳过 {skip} 条，待抓 {len(todo)} 条 · 并发 {workers}", flush=True)
+
+    success = failed = done = 0
+    t0 = time.time()
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(safe_fetch_one, r): r for r in todo}
+        for fut in as_completed(futures):
+            r = futures[fut]
+            try:
+                ok, meta = fut.result()
+            except Exception as e:
+                ok, meta = False, {"article_id": r["article_id"], "ok": False,
+                                   "error": str(e)[:200]}
+            metas[r["article_id"]] = meta
+            success += 1 if ok else 0
+            failed += 0 if ok else 1
+            done += 1
+            if done % 20 == 0 or done == len(todo):
+                elapsed = time.time() - t0
+                rate = done / elapsed if elapsed > 0 else 0
+                remain = (len(todo) - done) / rate if rate > 0 else 0
+                print(f"        {done + skip}/{len(rows)} 跳过 {skip} 成功 {success} "
+                      f"失败 {failed} {rate:.1f}条/秒 剩余≈{remain / 60:.1f}分", flush=True)
+
+    safe_write_index(rows, metas)
+    n_body = sum(1 for m in metas.values() if m.get("ok") and not m.get("has_content"))
+    n_att = sum(len(m.get("attachments", []) or []) for m in metas.values())
+    print(f"        索引写入（{len(rows)} 条）· 正文空 {n_body} 条 · 附件链接 {n_att} 个", flush=True)
+    return {"step": "safe", "ok": success, "fail": failed,
+            "total": len(rows), "skip": skip}
+
+
+# ============================================================================
+# 步骤 4：爬取 iweicha
 # ============================================================================
 IW_BASE = "http://iweicha.com/smp/smp10.aspx"
 IW_SYS = "MS599"
@@ -1118,7 +1493,7 @@ def run_iweicha(types=(1, 2), workers: int = 8, year: int | None = None,
     stats = {}
     for t in types:
         org = IW_TYPES.get(t, str(t))
-        print(f"[3/6] 爬取 iweicha · {org} …", flush=True)
+        print(f"[4/7] 爬取 iweicha · {org} …", flush=True)
         items = iw_collect_all(t, year)
         print(f"      共 {len(items)} 条", flush=True)
         if dry:
@@ -1151,10 +1526,10 @@ def run_iweicha(types=(1, 2), workers: int = 8, year: int | None = None,
 
 
 # ============================================================================
-# 步骤 4：汇总 iweicha 索引
+# 步骤 5：汇总 iweicha 索引
 # ============================================================================
 def run_iw_index() -> dict:
-    print("[4/6] 汇总 iweicha 索引 …", flush=True)
+    print("[5/7] 汇总 iweicha 索引 …", flush=True)
     rows = []
     for p in IW_ROOT.glob("*/*/*/_meta.json"):
         parts = p.parts
@@ -1199,14 +1574,14 @@ def run_iw_index() -> dict:
 
 
 # ============================================================================
-# 步骤 5：补取原文链接（接管浏览器点击「原文链接」）
+# 步骤 6：补取原文链接（接管浏览器点击「原文链接」）
 # ============================================================================
 IW_SRC_BTN = "#btn_1-001-1_src_url"
 
 
 def run_fetch_links(workers: int = 4, org: str | None = None,
                     limit: int = 0, dry: bool = False) -> dict:
-    print("[5/6] 补取原文链接 …", flush=True)
+    print("[6/7] 补取原文链接 …", flush=True)
     if not has_module("playwright"):
         step_skip("补取原文链接", "未安装 playwright（pip install playwright && playwright install chromium）")
         return {"step": "links", "skipped": "no-playwright"}
@@ -1293,18 +1668,19 @@ def run_fetch_links(workers: int = 4, org: str | None = None,
 
 
 # ============================================================================
-# 步骤 6：补全「正文在附件里」的条目
-#   6.1 下载附件   6.2 文字型 PDF 提取   6.3 扫描型 PDF OCR
+# 步骤 7：补全「正文在附件里」的条目
+#   7.1 下载附件   7.2 文字型 PDF 提取   7.3 扫描型 PDF OCR
 #   —— 直接扫原始目录，不依赖「待入库」（这是与旧脚本的关键差异）
 # ============================================================================
 ATT_MISSING_THRESHOLD = 300      # content.html 纯文本短于此值且含附件链接 → 视为正文缺失
 
 
 def iter_source_dirs():
-    """遍历两个源的原始条目目录 → yield (domain, col, dir_path)"""
+    """遍历三个源的原始条目目录 → yield (domain, col, dir_path)"""
     for base, cols, domain in [
         (PBC_ROOT, PBC_COLS, PBC_HOST),
         (NFRA_ROOT, NFRA_COLS, NFRA_HOST),
+        (SAFE_ROOT, SAFE_COLS, SAFE_HOST),
     ]:
         if not base.is_dir():
             continue
@@ -1523,7 +1899,7 @@ def run_attachments(workers: int = 6, dry: bool = False,
     步骤 6：下载附件 → 文字型 PDF 提文 → 扫描型 PDF OCR。
     结果写入 {原始条目目录}/_body.txt（爬数据阶段产物，供处理阶段取用）。
     """
-    print("[6/6] 补全「正文在附件里」的条目 …", flush=True)
+    print("[7/7] 补全「正文在附件里」的条目 …", flush=True)
     items = scan_attachment_targets()
     n_att = sum(len(it["attachments"]) for it in items)
     print(f"      正文缺失且带附件：{len(items)} 条 / {n_att} 个附件", flush=True)
@@ -1611,7 +1987,7 @@ def run_attachments(workers: int = 6, dry: bool = False,
 # ============================================================================
 # 主流程
 # ============================================================================
-STEPS = ["nfra", "pbc", "iweicha", "iweicha-index", "links", "attachments"]
+STEPS = ["nfra", "pbc", "safe", "iweicha", "iweicha-index", "links", "attachments"]
 
 
 def main():
@@ -1625,6 +2001,8 @@ def main():
     ap.add_argument("--types", type=int, nargs="+", default=[1, 2],
                     help="iweicha 机构：1金监局 2人行 3外汇局")
     ap.add_argument("--year", type=int, default=None, help="iweicha 只爬某年")
+    ap.add_argument("--limit", type=int, default=None,
+                    help="只处理前 N 条（调试用，目前仅 safe 步骤支持）")
     args = ap.parse_args()
 
     dry = args.dry_run
@@ -1650,42 +2028,48 @@ def main():
         if want("nfra"):
             results.append(run_nfra(workers=w or 4, dry=dry))
     except Exception as e:
-        print(f"[1/6] NFRA 失败（已跳过）：{type(e).__name__} {e}", flush=True)
+        print(f"[1/7] NFRA 失败（已跳过）：{type(e).__name__} {e}", flush=True)
 
     try:
         if want("pbc"):
             results.append(run_pbc(workers=w or 6, dry=dry))
     except Exception as e:
-        print(f"[2/6] 人行失败（已跳过）：{type(e).__name__} {e}", flush=True)
+        print(f"[2/7] 人行失败（已跳过）：{type(e).__name__} {e}", flush=True)
+
+    try:
+        if want("safe"):
+            results.append(run_safe(workers=w or SAFE_WORKERS_DEFAULT, dry=dry, limit=args.limit))
+    except Exception as e:
+        print(f"[3/7] 外汇局失败（已跳过）：{type(e).__name__} {e}", flush=True)
 
     try:
         if want("iweicha"):
             results.append(run_iweicha(types=tuple(args.types), workers=w or 8,
                                        year=args.year, dry=dry))
     except Exception as e:
-        print(f"[3/6] iweicha 失败（已跳过）：{type(e).__name__} {e}", flush=True)
+        print(f"[4/7] iweicha 失败（已跳过）：{type(e).__name__} {e}", flush=True)
 
     try:
         if want("iweicha-index"):
             results.append(run_iw_index())
     except Exception as e:
-        print(f"[4/6] 汇总索引失败（已跳过）：{type(e).__name__} {e}", flush=True)
+        print(f"[5/7] 汇总索引失败（已跳过）：{type(e).__name__} {e}", flush=True)
 
     if args.skip_link:
-        print("[5/6] 跳过补取原文链接（--skip-link）", flush=True)
+        print("[6/7] 跳过补取原文链接（--skip-link）", flush=True)
     else:
         try:
             if want("links"):
                 results.append(run_fetch_links(workers=w or 4, dry=dry))
         except Exception as e:
-            print(f"[5/6] 补取原文链接失败（已跳过）：{type(e).__name__} {e}", flush=True)
+            print(f"[6/7] 补取原文链接失败（已跳过）：{type(e).__name__} {e}", flush=True)
 
     try:
         if want("attachments"):
             results.append(run_attachments(workers=w or 6, dry=dry,
                                            no_ocr=args.skip_ocr, dpi=200))
     except Exception as e:
-        print(f"[6/6] 附件处理失败（已跳过）：{type(e).__name__} {e}", flush=True)
+        print(f"[7/7] 附件处理失败（已跳过）：{type(e).__name__} {e}", flush=True)
 
     print("=" * 72)
     print(f"阶段一完成，耗时 {time.time()-t0:.0f}s")

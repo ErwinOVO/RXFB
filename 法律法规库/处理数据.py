@@ -13,6 +13,7 @@
 输入：
     人民银行/{栏目}/{id}_{标题}/           content.txt content.html detail.json _meta.json
     国家金融监督管理总局/{栏目}/{id}_{标题}/  同上
+    外汇局/政策法规/{id}_{标题}/            content.txt content.html detail.html _meta.json
     iweicha/{机构}/{年份}/{id}_{标题}/      content.txt _meta.json
     iweicha/_index.csv                     阶段一汇总的索引
     {原始条目目录}/_body.txt               阶段一从附件/OCR 提取的正文（若有）
@@ -20,6 +21,7 @@
 输出（均写入 待入库_v2/）：
     待入库_v2/人民银行/{source_id}_{标题}/content.txt + _meta.json
     待入库_v2/国家金融监督管理总局/{source_id}_{标题}/content.txt + _meta.json
+    待入库_v2/国家外汇管理局/{source_id}_{标题}/content.txt + _meta.json
     待入库_v2/{机构}/_index.csv             供「入库.py」读取
     待入库_v2/_正文体检.csv                  正文质量明细
     待入库_v2/_排除清单.csv                  不入库清单
@@ -66,6 +68,7 @@ ROOT = _project_root()
 PBC_ROOT = ROOT / "人民银行"
 NFRA_ROOT = ROOT / "国家金融监督管理总局"
 IW_ROOT = ROOT / "iweicha"
+SAFE_ROOT = ROOT / "外汇局"
 
 ATT_PAT = re.compile(r"\.(pdf|docx?|xlsx?|wps|et|zip|rar|7z|pptx?|rtf)\b", re.I)
 
@@ -253,6 +256,31 @@ def load_pbc() -> list[dict]:
     return out
 
 
+def load_safe() -> list[dict]:
+    """官网外汇局：政策法规（zcfg 是 21 个栏目的全量聚合视图）。
+
+    外汇局没有 iweicha 侧数据（未启用 iweicha type=3），所以是单源，
+    在 run_merge 里以「官网」身份参与，不与任何 iweicha 记录配对。
+    """
+    out = []
+    for r in read_csv(SAFE_ROOT / "_index.csv"):
+        col = r.get("colName", "") or "政策法规"
+        folder = r.get("folder", "")
+        d = SAFE_ROOT / col / folder if folder else None
+        dt = (r.get("pubDate") or "").strip()
+        cl = r.get("content_len", "")
+        out.append({
+            "sys": "safe", "sid": r.get("articleId", ""), "org": "国家外汇管理局",
+            "title": r.get("title", ""), "year": dt[:4], "status": "",
+            "content_len": int(cl) if str(cl).isdigit() else 0,
+            "detail_url": r.get("url", ""), "original_url": r.get("url", ""),
+            # 文号直接来自详情页元数据区（标题里含文号的只有 16/558）
+            "doc_number": (r.get("docNo") or "").strip(),
+            "dir": d, "pub_date": dt,
+        })
+    return out
+
+
 def match(iw_list: list[dict], off_list: list[dict]):
     """返回 (merged, stats)。
 
@@ -425,17 +453,19 @@ def refresh_content_len(rows: list[dict]) -> None:
 def run_merge(out_root: Path, dry: bool = False) -> dict:
     print("[1/4] 整理待入库（合并去重）…", flush=True)
     iw_r, iw_j = load_iweicha("人行"), load_iweicha("金监局")
-    off_p, off_n = load_pbc(), load_nfra()
+    off_p, off_n, off_s = load_pbc(), load_nfra(), load_safe()
     # 用真实正文长度刷新（含阶段一提取的 _body.txt）
-    for lst in (iw_r, iw_j, off_p, off_n):
+    for lst in (iw_r, iw_j, off_p, off_n, off_s):
         refresh_content_len(lst)
     print(f"      载入 iweicha人行 {len(iw_r)} | iweicha金监局 {len(iw_j)} | "
-          f"官网PBOC {len(off_p)} | 官网NFRA {len(off_n)}", flush=True)
+          f"官网PBOC {len(off_p)} | 官网NFRA {len(off_n)} | 官网SAFE {len(off_s)}", flush=True)
 
     total = 0
     for org, iws, offs, outname in [
         ("人民银行", iw_r, off_p, "人民银行"),
         ("国家金融监督管理总局", iw_j, off_n, "国家金融监督管理总局"),
+        # 外汇局无 iweicha 侧数据：iws 传空，match() 会把全部官网条目原样放行
+        ("国家外汇管理局", [], off_s, "国家外汇管理局"),
     ]:
         merged, st = match(iws, offs)
         by_from = Counter(r["content_from"] for r in merged)
