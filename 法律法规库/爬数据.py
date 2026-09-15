@@ -974,14 +974,18 @@ SAFE_COL_NAME = "政策法规"
 
 SAFE_TIMEOUT = 30
 SAFE_MAX_RETRY = 3
+SAFE_RESP_SEC = 0.3             # 实测单次响应耗时（秒），仅用于估算总时长
 
 # 限速（重要）：该站没有 WAF、响应只要 0.3 秒，但仍是政务站，按「礼貌速率」抓。
-#   4 并发 × 平均 0.9 秒间隔 ≈ 4.4 请求/秒；558 条详情预计 2~3 分钟。
-#   想更慢就调小并发：--workers 1 → 约 1.1 请求/秒（全程约 9 分钟）。
-SAFE_WORKERS_DEFAULT = 4
-SAFE_LIST_WORKERS = 2
-SAFE_DELAY_MIN = 0.6            # 每次请求前的随机等待下界（秒）
-SAFE_DELAY_MAX = 1.2            # 上界
+#   目标：整步（28 个列表页 + 558 个详情页 ≈ 586 个请求）总耗时约 30 分钟
+#         → 586 / 1800 ≈ 0.32 请求/秒 → 单线程每个请求间隔约 2.8 秒。
+#   间隔会**按并发等比放大**（见 safe_delay_window），所以总节奏与并发无关；
+#   调大 --workers 只用于个别请求卡住时补位，不会把整体拉快。
+#   临时改总时长：--safe-interval 5.6 即平均间隔翻倍 → 全程约 60 分钟。
+SAFE_WORKERS_DEFAULT = 1
+SAFE_LIST_WORKERS = 1
+SAFE_DELAY_MIN = 2.5            # 每次请求前的随机等待下界（秒，单线程）
+SAFE_DELAY_MAX = 3.1            # 上界（两数均值 2.8 → 586 请求 ≈ 30 分钟）
 
 SAFE_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
            "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
@@ -1024,16 +1028,34 @@ def _safe_txt(seg: str) -> str:
     return re.sub(r"[\s\u3000\u00a0]+", " ", html_to_text(seg)).strip()
 
 
-def safe_http_get(url: str, timeout: int = SAFE_TIMEOUT) -> str:
+def safe_delay_window(workers: int,
+                      interval: float | None = None) -> tuple[float, float]:
+    """把「平均请求间隔」换算成实际 sleep 窗口 (下界, 上界)。
+
+    间隔按并发**等比放大** —— 这样总请求速率与 `--workers` 无关（默认 1 并发
+    ≈ 0.32 请求/秒），调大并发只用于个别请求卡住时补位，不会把整体节奏拉快。
+
+    `interval` 为 None 时用常量 SAFE_DELAY_MIN/MAX；否则以它为中心取 ±10% 作 jitter。
+    """
+    w = max(1, int(workers or 1))
+    if interval:
+        avg = max(0.05, float(interval))
+        return round(avg * 0.9 * w, 2), round(avg * 1.1 * w, 2)
+    return round(SAFE_DELAY_MIN * w, 2), round(SAFE_DELAY_MAX * w, 2)
+
+
+def safe_http_get(url: str, timeout: int = SAFE_TIMEOUT,
+                  delay_min: float = SAFE_DELAY_MIN,
+                  delay_max: float = SAFE_DELAY_MAX) -> str:
     """外汇局是纯静态页：不需要 cookie、不需要 session、不需要 JS 渲染。
     与人行官网、金监总局那套 F5 WAF / cookiejar 完全不同，直接取即可。
 
-    限速：每次请求前先随机等待 SAFE_DELAY_MIN~MAX 秒（带 jitter，与 NFRA / PBC 同款做法）。
-    重试时在此基础上再叠加退避。
+    限速：每次请求前先随机等待 delay_min~delay_max 秒（带 jitter，与 NFRA / PBC 同款做法）。
+    间隔由 run_safe 按并发换算后传入（见 safe_delay_window）；重试时在此基础上再叠加退避。
     """
     last = None
     for i in range(SAFE_MAX_RETRY):
-        time.sleep(random.uniform(SAFE_DELAY_MIN, SAFE_DELAY_MAX))
+        time.sleep(random.uniform(delay_min, delay_max))
         try:
             req = urllib.request.Request(url, headers=SAFE_HEADERS)
             raw = urllib.request.urlopen(req, timeout=timeout).read()
@@ -1072,15 +1094,17 @@ def safe_parse_list_page(html: str) -> list[dict]:
     return rows
 
 
-def safe_fetch_list() -> list[dict]:
+def safe_fetch_list(delay_min: float = SAFE_DELAY_MIN,
+                    delay_max: float = SAFE_DELAY_MAX) -> list[dict]:
     print(f"      [列表] {SAFE_COL_NAME}（{SAFE_ZCFG}，全栏目聚合）", flush=True)
-    p1 = safe_http_get(safe_list_url(1))
+    p1 = safe_http_get(safe_list_url(1), delay_min=delay_min, delay_max=delay_max)
     rows = safe_parse_list_page(p1)
     total = safe_total_pages(p1)
     print(f"        第 1 页：{len(rows)} 条 · 共 {total} 页", flush=True)
     if total > 1:
         with ThreadPoolExecutor(max_workers=SAFE_LIST_WORKERS) as pool:
-            futures = {pool.submit(safe_http_get, safe_list_url(n)): n
+            futures = {pool.submit(safe_http_get, safe_list_url(n), SAFE_TIMEOUT,
+                                   delay_min, delay_max): n
                        for n in range(2, total + 1)}
             for fut in as_completed(futures):
                 n = futures[fut]
@@ -1169,7 +1193,8 @@ def safe_folder(article_id: str, title: str) -> str:
     return f"{article_id}_{safe_name(title)}"
 
 
-def safe_fetch_one(row: dict) -> tuple[bool, dict]:
+def safe_fetch_one(row: dict, delay_min: float = SAFE_DELAY_MIN,
+                   delay_max: float = SAFE_DELAY_MAX) -> tuple[bool, dict]:
     """抓一条详情。返回 (ok, meta)。"""
     aid = row["article_id"]
     folder = SAFE_OUT / safe_folder(aid, row.get("title", ""))
@@ -1181,7 +1206,7 @@ def safe_fetch_one(row: dict) -> tuple[bool, dict]:
 
     url = row.get("url") or (SAFE_HOST + row.get("href", ""))
     try:
-        html = safe_http_get(url)
+        html = safe_http_get(url, delay_min=delay_min, delay_max=delay_max)
     except Exception as e:
         return False, {"article_id": aid, "ok": False, "error": str(e)[:200]}
     if not html or len(html) < 500:
@@ -1262,7 +1287,7 @@ def safe_write_index(rows: list[dict], metas: dict) -> None:
 
 
 def run_safe(workers: int = SAFE_WORKERS_DEFAULT, dry: bool = False,
-             limit: int | None = None) -> dict:
+             limit: int | None = None, interval: float | None = None) -> dict:
     print(f"[3/7] 爬取外汇局 · {SAFE_COL_NAME}（zcfg 全栏目聚合）…", flush=True)
 
     if dry:
@@ -1272,12 +1297,13 @@ def run_safe(workers: int = SAFE_WORKERS_DEFAULT, dry: bool = False,
 
     SAFE_ROOT.mkdir(parents=True, exist_ok=True)
 
+    lmin, lmax = safe_delay_window(SAFE_LIST_WORKERS, interval)
     list_json = SAFE_ROOT / "_list.json"
     if list_json.exists():
         rows = load_json(list_json, [])
         print(f"        复用 {list_json.name}（{len(rows)} 条）", flush=True)
     else:
-        rows = safe_fetch_list()
+        rows = safe_fetch_list(lmin, lmax)
         dump_json(list_json, rows)      # 缓存全量列表（limit 之前）
 
     if limit:
@@ -1297,10 +1323,19 @@ def run_safe(workers: int = SAFE_WORKERS_DEFAULT, dry: bool = False,
             todo.append(r)
     print(f"        跳过 {skip} 条，待抓 {len(todo)} 条 · 并发 {workers}", flush=True)
 
+    dmin, dmax = safe_delay_window(workers, interval)
+    avg = (dmin + dmax) / 2
+    nw = max(1, int(workers or 1))
+    # 每个 worker 分到 len(todo)/nw 个请求，每个耗时 (间隔 + 响应)
+    est_sec = (len(todo) / nw) * (avg + SAFE_RESP_SEC)
+    print(f"        限速：间隔 {dmin}~{dmax}s（{avg:.2f}s 均值）"
+          f" × {nw} 并发 ≈ {nw / (avg + SAFE_RESP_SEC):.2f} 请求/秒"
+          f" → 本批预计 ≈ {est_sec / 60:.1f} 分钟", flush=True)
+
     success = failed = done = 0
     t0 = time.time()
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(safe_fetch_one, r): r for r in todo}
+        futures = {pool.submit(safe_fetch_one, r, dmin, dmax): r for r in todo}
         for fut in as_completed(futures):
             r = futures[fut]
             try:
@@ -2003,6 +2038,9 @@ def main():
     ap.add_argument("--year", type=int, default=None, help="iweicha 只爬某年")
     ap.add_argument("--limit", type=int, default=None,
                     help="只处理前 N 条（调试用，目前仅 safe 步骤支持）")
+    ap.add_argument("--safe-interval", type=float, default=None, metavar="SEC",
+                    help="外汇局平均请求间隔秒数（默认约 2.8 → 全程约 30 分钟；"
+                         "翻倍即约 60 分钟）")
     args = ap.parse_args()
 
     dry = args.dry_run
@@ -2038,7 +2076,8 @@ def main():
 
     try:
         if want("safe"):
-            results.append(run_safe(workers=w or SAFE_WORKERS_DEFAULT, dry=dry, limit=args.limit))
+            results.append(run_safe(workers=w or SAFE_WORKERS_DEFAULT, dry=dry,
+                                    limit=args.limit, interval=args.safe_interval))
     except Exception as e:
         print(f"[3/7] 外汇局失败（已跳过）：{type(e).__name__} {e}", flush=True)
 
