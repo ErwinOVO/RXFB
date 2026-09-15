@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="v7WQTY3AEDvGDOAHbNehLI">
+<head data-page-node-id="iE8NgNfByOSmnx7ibDXMEL">
+<meta charset="UTF-8" data-page-node-id="QfqyhH4WXa2zgwEPtl8srA">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="i90sgEpUQyDhlLFJzBnghj">
+<title>合规法规库 · 检索</title>
+<style>
+:root{
+  --bg:#F5F6F8; --card:#FFFFFF; --line:#E5E7EB; --line2:#D1D5DB;
+  --txt:#1F2329; --sub:#6B7280; --hint:#9CA3AF;
+  --blue:#185FA5; --blue-bg:#E6F1FB; --blue-line:#B5D4F4;
+  --ok-t:#3B6D11; --ok-bg:#EAF3DE; --bad-t:#A32D2D; --bad-bg:#FCEBEB;
+  --warn-t:#854F0B; --warn-bg:#FAEEDA; --gray-t:#5F5E5A; --gray-bg:#F1EFE8;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:"Microsoft YaHei","PingFang SC","Segoe UI",sans-serif;background:var(--bg);color:var(--txt);font-size:14px}
+button{font-family:inherit;cursor:pointer}
+
+/* ---------- 顶栏 ---------- */
+.top{position:sticky;top:0;z-index:20;background:var(--card);border-bottom:1px solid var(--line);padding:12px 24px;display:flex;align-items:center;gap:16px}
+.logo{font-size:17px;font-weight:600;color:var(--blue);white-space:nowrap}
+.logo small{font-weight:400;color:var(--hint);margin-left:6px;font-size:12px}
+.search-wrap{flex:1;display:flex;gap:8px;max-width:760px}
+.search-wrap input{flex:1;border:1px solid var(--line2);border-radius:8px;padding:9px 14px;font-size:14px;outline:none}
+.search-wrap input:focus{border-color:var(--blue);box-shadow:0 0 0 2px var(--blue-bg)}
+.btn{border:1px solid var(--line2);background:var(--card);border-radius:8px;padding:8px 14px;font-size:13px;color:var(--txt)}
+.btn:hover{border-color:var(--blue);color:var(--blue)}
+.btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn.primary:hover{opacity:.9;color:#fff}
+.btn.ai{color:var(--hint);border-style:dashed;cursor:not-allowed}
+.mode-tag{font-size:12px;color:var(--hint);white-space:nowrap}
+
+/* ---------- 高级检索表单 ---------- */
+.adv{position:relative;margin:0 0 12px}
+.adv-grid{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 18px;display:flex;flex-direction:column;gap:10px}
+.frow{display:flex;align-items:center;gap:10px}
+.flabel{width:62px;flex-shrink:0;font-size:13px;color:var(--txt);text-align:right}
+.flabel.vtop{align-self:flex-start;margin-top:8px}
+.finput{flex:1;border:1px solid var(--line2);border-radius:6px;padding:7px 11px;font-size:13px;outline:none;font-family:inherit}
+.finput:focus{border-color:var(--blue);box-shadow:0 0 0 2px var(--blue-bg)}
+textarea.finput{resize:vertical;min-height:52px;line-height:1.5}
+.finput.date{flex:0 0 150px}
+.seg{display:flex;flex-shrink:0;border:1px solid var(--blue);border-radius:6px;overflow:hidden}
+.segb{border:none;background:var(--card);padding:7px 14px;font-size:13px;color:var(--blue)}
+.segb.on{background:var(--blue);color:#fff}
+.rcol{flex:1;display:flex;flex-direction:column;gap:8px}
+.frow-inline{display:flex;align-items:center;gap:10px}
+.frow-inline .flabel{width:62px}
+.ind-row{display:flex;gap:18px;font-size:13px;color:var(--txt);padding-left:72px}
+.ind-row label{display:flex;align-items:center;gap:5px;cursor:pointer}
+.tilde{color:var(--hint)}
+.scope-radios{display:flex;align-items:center;gap:14px;margin-left:18px;font-size:13px}
+.radio{display:flex;align-items:center;gap:4px;cursor:pointer}
+.hint{color:var(--blue);cursor:pointer;font-size:12px}
+.adv-actions{display:flex;justify-content:center;gap:12px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+.syntax-pop{display:none;position:absolute;right:18px;bottom:12px;z-index:30;background:var(--card);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.1);padding:12px 16px;font-size:12px;line-height:1.9;color:var(--sub);width:420px}
+.syntax-pop.show{display:block}
+.syntax-pop b{color:var(--txt)}
+
+/* ---------- 主体 ---------- */
+.layout{display:flex;gap:16px;padding:14px 24px 16px;max-width:1440px;margin:0 auto}
+.side{width:262px;flex-shrink:0;display:flex;flex-direction:column;gap:12px}
+.main-col{flex:1;min-width:0;display:flex;flex-direction:column}
+.results{flex:1;min-width:0}
+.frow{flex-wrap:wrap}
+
+.panel{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.panel-h{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;font-weight:600;font-size:13px;cursor:pointer;user-select:none}
+.panel-h .arr{transition:transform .15s;color:var(--hint);font-size:11px}
+.panel.closed .arr{transform:rotate(-90deg)}
+.panel.closed .panel-b{display:none}
+.panel-b{border-top:1px solid var(--line);max-height:300px;overflow-y:auto;padding:6px 0}
+.opt{display:flex;justify-content:space-between;align-items:center;padding:6px 14px;cursor:pointer;font-size:13px;color:var(--txt);gap:8px}
+.opt:hover{background:var(--blue-bg)}
+.opt.on{background:var(--blue-bg);color:var(--blue);font-weight:600}
+.opt.sub{padding-left:30px;color:var(--sub)}
+.opt .n{color:var(--hint);font-size:12px;flex-shrink:0}
+.opt.on .n{color:var(--blue)}
+.mini-input{margin:6px 12px;width:calc(100% - 24px);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font-size:12px;outline:none}
+
+/* ---------- 结果 ---------- */
+.res-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px}
+.res-total{font-size:13px;color:var(--sub)}
+.res-total b{color:var(--txt);font-size:16px}
+.tag{display:inline-block;font-size:11px;padding:1px 7px;border-radius:4px;margin-left:6px;vertical-align:1px}
+.tag.fts{background:var(--blue-bg);color:var(--blue)}
+.tag.like{background:var(--gray-bg);color:var(--gray-t)}
+.tag.docno{background:var(--warn-bg);color:var(--warn-t)}
+.chip{display:inline-flex;align-items:center;gap:3px;background:var(--blue-bg);color:var(--blue);border-radius:4px;padding:1px 4px 1px 7px;margin-left:6px;font-size:12px;vertical-align:1px}
+.chip-x{font-style:normal;cursor:pointer;padding:0 3px;opacity:.65;font-size:11px}
+.chip-x:hover{opacity:1;font-weight:700}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:10px;cursor:pointer;transition:border-color .12s}
+.card:hover{border-color:var(--blue)}
+.card-title{font-size:15px;font-weight:600;line-height:1.45;word-break:break-all}
+.card-meta{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:7px;font-size:12px;color:var(--sub);align-items:center}
+.badge{font-size:11px;padding:2px 8px;border-radius:4px;white-space:nowrap}
+.b-ok{background:var(--ok-bg);color:var(--ok-t)}
+.b-bad{background:var(--bad-bg);color:var(--bad-t)}
+.b-warn{background:var(--warn-bg);color:var(--warn-t)}
+.b-gray{background:var(--gray-bg);color:var(--gray-t)}
+.card-snip{margin-top:8px;font-size:13px;color:var(--sub);line-height:1.6;word-break:break-all}
+mark{background:#FDE68A;color:inherit;padding:0 1px;border-radius:2px}
+.cats{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px}
+.cat{font-size:11px;background:var(--blue-bg);color:var(--blue);padding:1px 7px;border-radius:4px}
+
+.empty{text-align:center;color:var(--hint);padding:80px 0;font-size:14px}
+.pager{display:flex;justify-content:center;align-items:center;gap:12px;margin:18px 0 40px;font-size:13px;color:var(--sub)}
+.pager button:disabled{opacity:.4;cursor:not-allowed}
+
+/* ---------- 详情弹层 ---------- */
+.mask{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:50;display:none}
+.mask.show{display:block}
+.detail{position:fixed;top:0;right:-720px;width:720px;max-width:92vw;height:100vh;background:var(--card);z-index:51;box-shadow:-4px 0 24px rgba(0,0,0,.12);transition:right .22s ease;display:flex;flex-direction:column}
+.detail.show{right:0}
+.detail-h{padding:16px 22px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.detail-h h2{font-size:16px;line-height:1.5;word-break:break-all}
+.x{border:none;background:none;font-size:20px;color:var(--hint);line-height:1;padding:2px 6px}
+.x:hover{color:var(--txt)}
+.detail-meta{padding:12px 22px;border-bottom:1px solid var(--line);font-size:13px;display:flex;flex-direction:column;gap:6px;background:#FAFBFC}
+.mrow{display:flex;flex-wrap:wrap;gap:6px 18px}
+.mrow span b{color:var(--hint);font-weight:400;margin-right:5px}
+.detail-b{flex:1;overflow-y:auto;padding:18px 22px;line-height:1.9;font-size:14px;white-space:pre-wrap;word-break:break-all;color:#26282D}
+.loading{text-align:center;color:var(--hint);padding:60px 0}
+
+@media (max-width:900px){.side{display:none}}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:#D1D5DB;border-radius:4px}
+</style>
+</head>
+<body data-page-node-id="A45XHkRMMo01CyV2x5qf45">
+
+<div class="top" data-page-node-id="ESld5VaOAIcmqzUGDg6Zdv">
+  <div class="logo" data-page-node-id="WL3tik1rC5SUlLvVrlA02k">合规法规库<small id="statLine" data-page-node-id="JfATk5yXbBVOe7sE2lGRX4"></small></div>
+  <span class="mode-tag" id="modeTag" data-page-node-id="Ypyney2ozjB9gQscDEDy6i"></span>
+  <div style="flex:1"></div>
+  <button class="btn ai" title="向量语义检索待接入（规划中，走 Dify）" data-page-node-id="JEzGs7uKILbKGdC7QWzGpB">AI 检索</button>
+  <button class="btn" onclick="exportCSV()" data-page-node-id="Z3TBKzp6zBPEDq7fKyTa0r">导出 CSV</button>
+</div>
+
+<div class="adv" data-page-node-id="ADVFORM">
+  <div class="adv-grid">
+    <div class="frow">
+      <label class="flabel">标题搜索</label>
+      <div class="seg" id="segMode">
+        <button class="segb on" data-v="exact" onclick="setSeg(this)">精确</button>
+        <button class="segb" data-v="fuzzy" onclick="setSeg(this)">模糊</button>
+      </div>
+      <input id="titleQ" class="finput" placeholder='使用"+"(且的关系)；使用"/"(或的关系)进行多关键词组合搜索' autocomplete="off">
+    </div>
+    <div class="frow">
+      <label class="flabel vtop">正文搜索</label>
+      <textarea id="contentQ" class="finput" rows="2" placeholder='使用"+"(且的关系)；使用"/"(或的关系)进行多关键词组合搜索'></textarea>
+      <div class="rcol">
+        <div class="frow-inline">
+          <label class="flabel">法规文号</label>
+          <input id="docNo" class="finput" placeholder="请输入法规文号" autocomplete="off">
+        </div>
+        <div class="frow-inline">
+          <label class="flabel">颁布单位</label>
+          <input id="issuerQ" class="finput" placeholder="请输入颁布单位" autocomplete="off">
+        </div>
+        <div class="ind-row">
+          <label><input type="checkbox" class="ind" value="银行业"> 银行业</label>
+          <label><input type="checkbox" class="ind" value="证券业"> 证券业</label>
+          <label><input type="checkbox" class="ind" value="保险业"> 保险业</label>
+        </div>
+      </div>
+    </div>
+    <div class="frow">
+      <label class="flabel">颁布时间</label>
+      <input type="date" id="dateFrom" class="finput date">
+      <span class="tilde">~</span>
+      <input type="date" id="dateTo" class="finput date">
+      <span class="scope-radios" id="scopeRow">
+        <label class="radio"><input type="checkbox" class="cscope" value="tiao"> 同条</label>
+        <label class="radio"><input type="checkbox" class="cscope" value="duan"> 同段</label>
+        <label class="radio"><input type="checkbox" class="cscope" value="ju"> 同句</label>
+        <span class="hint" onclick="toggleSyntax(event)">ⓘ 检索符号</span>
+      </span>
+    </div>
+    <div class="adv-actions">
+      <button class="btn" onclick="resetAll()">重 置</button>
+      <button class="btn primary" onclick="doSearch(1)">检 索</button>
+    </div>
+  </div>
+  <div class="syntax-pop" id="syntaxPop">
+    <b>组合检索语法</b><br>
+    <b>+</b> 表示"且"：房贷+抵押 → 同一范围内同时含"房贷"和"抵押"<br>
+    <b>/</b> 表示"或"：抵押/质押 → 含"抵押"或"质押"均可<br>
+    组合示例：<b>房贷+抵押/质押</b> = 房贷且(抵押或质押)<br>
+    正文搜索可选 <b>同条 / 同段 / 同句</b> 限定关键词的位置关系（仅"精确"模式生效）：<br>
+    勾选=两个以上的词须落在同一<b>条/段/句</b>内；不勾选=不限位置（整篇内出现即可）。<br>
+    "模糊"模式下不支持组合语法，也不限定位置关系。
+  </div>
+</div>
+
+<div class="layout" data-page-node-id="FzcjLZCZMmdWb6LMErzzC0">
+  <aside class="side" id="side" data-page-node-id="4FrPB3wGcSjnCZ6PzswLrh"></aside>
+  <div class="main-col">
+  <main class="results" data-page-node-id="tMTSiop7ESBS8qBWXFcUCW">
+    <div class="res-head" data-page-node-id="U7HiF7ZJr2XmQzxv1arlK1">
+      <div class="res-total" data-page-node-id="mXdUSl88UaguRKNaKmGHWT">共 <b id="total" data-page-node-id="gHU3IaHTAtI4kVgFtIx9ME">-</b> 条 <span id="filterHint" data-page-node-id="0dbjvnTbG5HULNjh9F9YkP"></span></div>
+      <div data-page-node-id="R9jbbGRsLJwDrFJdguzHaP">
+        <select id="sortSel" class="btn" onchange="doSearch()" style="padding:6px 10px" data-page-node-id="T35HcmrkjWceoQ6f1xEOAU">
+          <option value="relevance" data-page-node-id="wB1oAO4dmwaHZv0iGfDnkn">智能排序</option>
+          <option value="pub_date" data-page-node-id="WC0XEmIjVQLk2BndyarwSH">发布日期 ↓</option>
+          <option value="effective_date" data-page-node-id="rALsY6xYHcaRh2OffiwUxS">施行日期 ↓</option>
+        </select>
+        <button class="btn" onclick="resetAll()" data-page-node-id="NMcT8bDtTXwdXIIQuWciOV">重置</button>
+      </div>
+    </div>
+    <div id="list" data-page-node-id="n3bM5xKShloxTXT0jd1ULk"><div class="empty" data-page-node-id="Lol8w0CyG0Kg56JEUV7v2I">加载中…</div></div>
+    <div class="pager" id="pager" data-page-node-id="cDGiBJoCJVoBBsrDaeABwS"></div>
+  </main>
+  </div>
+</div>
+
+<div class="mask" id="mask" onclick="closeDetail()" data-page-node-id="qXwxBZKodLLolTLKwKJ2mL"></div>
+<div class="detail" id="detail" data-page-node-id="eamNQspVBNBEzgUXnj3Lth">
+  <div class="detail-h" data-page-node-id="n7lhP6uLFNCaevuP1S4F60">
+    <h2 id="dTitle" data-page-node-id="RwV6h2UyTPfHuYONNSIuc3"></h2>
+    <button class="x" onclick="closeDetail()" data-page-node-id="tG3LBe7Ji80Q7ExvdZDCMk">✕</button>
+  </div>
+  <div class="detail-meta" id="dMeta" data-page-node-id="ZsUi6admVwx5YVkj9HEoyT"></div>
+  <div class="detail-b" id="dBody" data-page-node-id="JJEtijW0nHKYCUesNupYwC"><div class="loading" data-page-node-id="F54WOUXFbeiHl3HrsBZSDY">加载中…</div></div>
+</div>
+
+<script>
+"use strict";
+const S = { title_mode:"exact", hierarchy:null, issuer:null, category:null, status:null, year:null,
+            content_scope:null, page:1, size:20, total:0, mode:"", filters:null };
+const $ = id => document.getElementById(id);
+const esc = s => String(s??"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+/* 文号兜底：字段为空时，从标题里抽文号显示，避免误报「文号缺」
+   与 入库/补文号.py 同源逻辑的轻量版（前端只做展示兜底，不回写） */
+function docNoOrTitle(docNo, title){
+  if(docNo && docNo.trim()) return docNo.trim();
+  const t = String(title||"");
+  const m = t.match(/[〔\[［]\s*(?:\d{2}|\d{4})\s*[〕\]］]\s*第?\s*[0-9零一二三四五六七八九十百]+\s*号/) ||
+            t.match(/[〔\[［]\s*(?:\d{2}|\d{4})\s*[〕\]］]\s*[A-Za-z\u4e00-\u9fa5]{0,10}字\s*第?\s*[0-9零一二三四五六七八九十百]+\s*号/);
+  return m ? m[0] : "";
+}
+const docNoText = (docNo, title) => docNoOrTitle(docNo, title) || "文号缺";
+/* 高亮词表：从标题/正文组合式里抽出全部关键词 */
+const searchTerms = () => ["titleQ","contentQ"].map(id=>($(id)?$(id).value:"")).join(" ")
+    .split(/[+/\s]+/).map(t=>t.trim()).filter(t=>t.length>=2);
+const hl = (s, kws) => { const t = esc(s); const list = (kws&&kws.length?kws:[]);
+  if(!list.length) return t;
+  try { const re = new RegExp(list.map(k=>esc(k).replace(/[.*+?^${}()|[\]\\]/g,"\\$&")).join("|"),"g");
+        return t.replace(re, m=>"<mark>"+m+"</mark>"); }
+  catch(e){ return t; } };
+const badge = st => { st = (st===null||st===undefined||st==="")?"未标注":st;
+  const cls = {"有效":"b-ok","已废止":"b-bad","失效":"b-gray","已修订":"b-warn","未标注":"b-gray"}[st]||"b-gray";
+  return `<span class="badge ${cls}">${esc(st)}</span>`; };
+
+/* ---------------- 筛选栏 ---------------- */
+function panelHTML(title, bodyHTML, open=true){
+  return `<div class="panel${open?"":" closed"}"><div class="panel-h" onclick="this.parentNode.classList.toggle('closed')">
+    <span>${title}</span><span class="arr">▼</span></div><div class="panel-b">${bodyHTML}</div></div>`;
+}
+function optHTML(dim, key, count, label, sub, cur){
+  const cls = "opt"+(sub?" sub":"")+((String(cur)===String(key))?" on":"");
+  const lit = key===null ? "null" : JSON.stringify(String(key)).replace(/"/g, "&quot;");
+  return `<div class="${cls}" data-dim="${dim}" data-key="${esc(key??"")}" onclick="pick('${dim}', ${lit})">
+    <span>${label}</span><span class="n">${count}</span></div>`;
+}
+function renderSide(){
+  const F = S.filters; if(!F) return;
+  let h = "";
+  h += panelHTML("法规层级", `<div class="opt" data-dim="hierarchy" data-key="__all__" onclick="pick('hierarchy', null)"><span>全部</span><span class="n">${F.hierarchy.reduce((a,b)=>a+b.count,0)}</span></div>` +
+    F.hierarchy.map(t=>{
+      let s = optHTML("hierarchy", t.name, t.count, esc(t.name), false, S.hierarchy);
+      s += t.children.map(c=>optHTML("hierarchy", c.name, c.count, esc(c.name), true, S.hierarchy)).join("");
+      return s; }).join(""));
+
+  h += panelHTML("发布机构", `<input class="mini-input" placeholder="筛选机构…" oninput="filterOrg(this.value)">` +
+    `<div id="orgList">` + F.issuer.map(o=>optHTML("issuer", o.key, o.count, esc(o.key), false, S.issuer)).join("") + `</div>`, false);
+
+  h += panelHTML("业务分类", F.category.map(g=>
+    `<div style="padding:5px 14px 2px;font-size:11px;color:var(--hint)">${esc(g.group)}</div>` +
+    g.items.map(c=>optHTML("category", c.key, c.count, esc(c.key), false, S.category)).join("")).join(""), false);
+
+  h += panelHTML("时效状态", `<div class="opt" data-dim="status" data-key="__all__" onclick="pick('status', null)"><span>全部</span><span class="n">${F.status.reduce((a,b)=>a+b.count,0)}</span></div>` +
+    F.status.map(o=>optHTML("status", o.key==="未标注"?"":o.key, o.count, esc(o.key), false, S.status)).join(""));
+
+  h += panelHTML("发布年份", `<div id="yearList">` + F.year.slice(0,8).map(o=>optHTML("year", o.key, o.count, esc(o.key), false, S.year)).join("") + `</div>` +
+    (F.year.length>8?`<div class="opt" onclick="showAllYears()"><span style="color:var(--blue)">展开全部 ${F.year.length} 个年份</span></div>`:""), false);
+
+  $("side").innerHTML = h;
+}
+function showAllYears(){
+  const F=S.filters;
+  $("yearList").innerHTML = F.year.map(o=>optHTML("year", o.key, o.count, esc(o.key), false, S.year)).join("");
+}
+function filterOrg(kw){
+  kw = kw.trim().toLowerCase();
+  document.querySelectorAll("#orgList .opt").forEach(el=>{
+    el.style.display = !kw || el.textContent.toLowerCase().includes(kw) ? "" : "none";
+  });
+}
+function pick(dim, key){
+  if(key === null){ S[dim] = null; }
+  else if(dim === "status" && key === ""){ S.status = ""; }
+  else { S[dim] = key; }
+  if(dim === "issuer"){ $("issuerQ").value = key || ""; }
+  S.page = 1; doSearch();
+}
+/* 单独移除一个已选条件（已选 chip 的 ✕） */
+function clearCond(k, v){
+  if(k==="title") $("titleQ").value = "";
+  else if(k==="content") $("contentQ").value = "";
+  else if(k==="docno") $("docNo").value = "";
+  else if(k==="issuer"){ $("issuerQ").value = ""; }
+  else if(k==="ind"){ const el=document.querySelector(`.ind[value="${v}"]`); if(el) el.checked=false; }
+  else if(k==="date"){ $("dateFrom").value=""; $("dateTo").value=""; }
+  else if(k==="scope"){ document.querySelectorAll(".cscope").forEach(c=>c.checked=false); S.content_scope=null; }
+  else if(k==="hierarchy"||k==="category"||k==="year") S[k]=null;
+  else if(k==="status") S.status=null;
+  S.page = 1; doSearch();
+}
+function resetAll(){
+  Object.assign(S, {hierarchy:null, issuer:null, category:null, status:null, year:null, page:1, content_scope:null});
+  ["titleQ","contentQ","docNo","issuerQ"].forEach(id=>{ if($(id)) $(id).value=""; });
+  document.querySelectorAll(".ind").forEach(x=>x.checked=false);
+  document.querySelectorAll(".cscope").forEach(x=>x.checked=false);
+  $("dateFrom").value=""; $("dateTo").value="";
+  doSearch();
+}
+function setSeg(btn){
+  document.querySelectorAll("#segMode .segb").forEach(b=>b.classList.remove("on"));
+  btn.classList.add("on");
+  S.title_mode = btn.dataset.v;
+  const combo = '使用"+"(且的关系)；使用"/"(或的关系)进行多关键词组合搜索';
+  const plain = (id) => id === "titleQ" ? "请输入法规标题，多个词用空格隔开" : "请输入正文内容，多个词用空格隔开";
+  const exact = S.title_mode === "exact";
+  $("titleQ").placeholder = exact ? combo : plain("titleQ");
+  $("contentQ").placeholder = exact ? combo : plain("contentQ");
+  /* 位置粒度只在「精确」模式生效；模糊模式（不限位置）下隐藏 */
+  $("scopeRow").style.display = exact ? "" : "none";
+  if(!exact) document.querySelectorAll(".cscope").forEach(c=>c.checked=false);
+}
+/* 位置粒度：可反选的单选（再点一下取消 → 不限位置） */
+function bindScope(){
+  document.querySelectorAll(".cscope").forEach(el=>{
+    el.addEventListener("click", e=>{
+      if(e.target.checked){   // 选中自己时清掉其他
+        document.querySelectorAll(".cscope").forEach(o=>{ if(o!==e.target) o.checked=false; });
+      }
+      S.content_scope = e.target.checked ? e.target.value : null;
+    });
+  });
+}
+function toggleSyntax(e){
+  e.stopPropagation();
+  $("syntaxPop").classList.toggle("show");
+}
+document.addEventListener("click", e=>{
+  const pop = $("syntaxPop");
+  if(pop.classList.contains("show") && !pop.contains(e.target)) pop.classList.remove("show");
+});
+
+/* ---------------- 检索 ---------------- */
+function formState(){
+  return {
+    title_q: $("titleQ").value.trim(),
+    title_mode: S.title_mode,
+    content_q: $("contentQ").value.trim(),
+    content_scope: S.title_mode === "exact" ? (S.content_scope || null) : null,
+    doc_number: $("docNo").value.trim(),
+    issuer: S.issuer || $("issuerQ").value.trim(),
+    industries: [...document.querySelectorAll(".ind:checked")].map(x=>x.value),
+    date_from: $("dateFrom").value || null,
+    date_to: $("dateTo").value || null,
+  };
+}
+async function doSearch(newPage){
+  if(newPage) S.page = 1;
+  const f = formState();
+  Object.assign(S, f);
+  const body = { ...f, hierarchy:S.hierarchy, category:S.category,
+    status:S.status, year:S.year, page:S.page, size:S.size, sort:$("sortSel").value };
+  $("list").innerHTML = `<div class="empty">检索中…</div>`;
+  const r = await fetch("/api/search", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+  const d = await r.json();
+  S.total = d.total; S.mode = d.mode; S.facets = d.facets;
+  $("total").textContent = d.total;
+  const modeName = {fts:"全文相关度", like:"模糊匹配", docno:"文号精确", none:"浏览全部", form:"条件检索"}[d.mode]||d.mode;
+  $("modeTag").innerHTML = `<span class="tag ${d.mode}">${modeName}</span>`;
+  const chips = [];
+  if(f.title_q) chips.push(["标题",f.title_q,"title"]);
+  if(f.content_q) chips.push(["正文",f.content_q,"content"]);
+  if(f.content_scope) chips.push(["范围",{tiao:"同条",duan:"同段",ju:"同句"}[f.content_scope]||f.content_scope,"scope"]);
+  if(f.doc_number) chips.push(["文号",f.doc_number,"docno"]);
+  if(f.issuer) chips.push(["单位",f.issuer,"issuer"]);
+  (f.industries||[]).forEach(v=>chips.push(["行业",v,"ind",v]));
+  if(f.date_from||f.date_to) chips.push(["时间",(f.date_from||"…")+"~"+(f.date_to||"…"),"date"]);
+  if(S.hierarchy) chips.push(["层级",S.hierarchy,"hierarchy"]);
+  if(S.category) chips.push(["分类",S.category,"category"]);
+  if(S.status!==null) chips.push(["时效",S.status||"未标注","status"]);
+  if(S.year) chips.push(["年份",S.year,"year"]);
+  $("filterHint").innerHTML = chips.length
+    ? "｜已选：" + chips.map(c=>`<span class="chip">${esc(c[0])}=${esc(c[1])}<i class="chip-x" title="移除该条件" onclick="clearCond('${c[2]}',&quot;${esc(c[3]||"")}&quot;)">✕</i></span>`).join("")
+    : "";
+  renderHits(d.hits); renderPager(); renderFacets(); updateSideActive();
+}
+function renderHits(hits){
+  if(!hits.length){ $("list").innerHTML = `<div class="empty">没有符合条件的法规，试试放宽筛选</div>`; return; }
+  const kws = searchTerms();
+  $("list").innerHTML = hits.map(h=>`
+    <div class="card" onclick="openDetail(${h.id})">
+      <div class="card-title">${hl(h.title, kws)}</div>
+      <div class="card-meta">
+        ${badge(h.status)}
+        <span>${esc(docNoText(h.doc_number, h.title))}</span>
+        <span>${esc(h.issuer||"-")}</span>
+        <span>${esc(h.hierarchy||"-")}</span>
+        <span>发布 ${esc(h.pub_date||"缺")}</span>
+        ${h.effective_date?`<span>施行 ${esc(h.effective_date)}</span>`:""}
+      </div>
+      ${h.categories.length?`<div class="cats">${h.categories.slice(0,4).map(c=>`<span class="cat">${esc(c)}</span>`).join("")}</div>`:""}
+      ${h.snippet?`<div class="card-snip">${hl(h.snippet, kws)}</div>`:""}
+    </div>`).join("");
+}
+function renderPager(){
+  const pages = Math.max(1, Math.ceil(S.total/S.size));
+  $("pager").innerHTML = `<button class="btn" ${S.page<=1?"disabled":""} onclick="goPage(${S.page-1})">上一页</button>
+    第 ${S.page} / ${pages} 页
+    <button class="btn" ${S.page>=pages?"disabled":""} onclick="goPage(${S.page+1})">下一页</button>`;
+}
+function goPage(p){ S.page = p; doSearch(); window.scrollTo(0,0); }
+
+/* facets 动态计数覆写（筛选后各维度计数变化） */
+function renderFacets(){
+  const F = S.facets; if(!F) return;
+  const cnt = (dim, key) => { const o=(F[dim]||[]).find(x=>String(x.key)===String(key)); return o?o.count:null; };
+  document.querySelectorAll(".opt[data-dim]").forEach(el=>{
+    const dim = el.dataset.dim, key = el.dataset.key;
+    let n = null;
+    if(dim==="hierarchy"){ n = cnt(dim, key); }                        // 顶级有动态值，子级 facets 未聚合保持静态
+    else if(dim==="status"){ n = cnt(dim, key===""?"未标注":key); }
+    else { n = cnt(dim, key); }
+    if(n!==null){ const nEl = el.querySelector(".n"); if(nEl) nEl.textContent = n; }
+  });
+}
+
+/* 选中态高亮：每次检索后按 S 当前状态刷新 .on */
+function updateSideActive(){
+  document.querySelectorAll(".opt[data-dim]").forEach(el=>{
+    const dim = el.dataset.dim, key = el.dataset.key, cur = S[dim];
+    const on = (cur===null||cur===undefined) ? key==="__all__" : String(cur)===String(key);
+    el.classList.toggle("on", on);
+  });
+}
+
+/* ---------------- 详情 ---------------- */
+async function openDetail(id){
+  $("mask").classList.add("show"); $("detail").classList.add("show");
+  $("dBody").innerHTML = `<div class="loading">加载中…</div>`;
+  const r = await fetch("/api/regulation/"+id); const d = await r.json();
+  $("dTitle").textContent = d.title;
+  $("dMeta").innerHTML = `
+    <div class="mrow">${badge(d.status)}
+      <span><b>文号</b>${esc(docNoText(d.doc_number, d.title))}</span>
+      <span><b>层级</b>${esc(d.hierarchy||"-")}</span>
+      <span><b>效力范围</b>${esc(d.scope||"-")}</span></div>
+    <div class="mrow"><span><b>发布</b>${esc(d.pub_date||"缺")}</span>
+      <span><b>施行</b>${esc(d.effective_date||"缺")}</span>
+      ${d.source_url?`<span><a href="${esc(d.source_url)}" target="_blank" rel="noopener" style="color:var(--blue)">原文链接 ↗</a></span>`:""}</div>
+    <div class="mrow"><span><b>机构</b></span>${d.issuers.map(o=>`<span>${esc(o.name)}${o.is_primary?'<i style="color:var(--hint);font-style:normal;font-size:11px">（牵头）</i>':""}</span>`).join("")}</div>
+    ${d.categories.length?`<div class="mrow"><span><b>分类</b></span>${d.categories.map(c=>`<span class="cat">${esc(c.group?c.group+" · ":"")}${esc(c.name)}</span>`).join("")}</div>`:""}`;
+  $("dBody").textContent = d.content_text || "（正文缺失）";
+  $("dBody").scrollTop = 0;
+}
+function closeDetail(){ $("mask").classList.remove("show"); $("detail").classList.remove("show"); }
+document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeDetail(); });
+
+/* ---------------- 导出 ---------------- */
+async function exportCSV(){
+  const f = formState();
+  const body = { ...f, hierarchy:S.hierarchy, category:S.category,
+    status:S.status, year:S.year, page:1, size:100, sort:"pub_date" };
+  const r = await fetch("/api/search", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+  const d = await r.json();
+  const rows = [["ID","标题","文号","层级","时效","发布日期","施行日期","机构","分类","原文链接"]];
+  d.hits.forEach(h=>rows.push([h.id,h.title,h.doc_number,h.hierarchy,h.status||"",h.pub_date||"",h.effective_date||"",h.issuer,h.categories.join("；"),h.source_url]));
+  const csv = "\uFEFF" + rows.map(r=>r.map(c=>'"'+String(c??"").replace(/"/g,'""')+'"').join(",")).join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], {type:"text/csv"}));
+  a.download = "法规检索结果.csv"; a.click();
+  alert(`已导出前 ${d.hits.length} 条（当前条件下共 ${d.total} 条，如需全量可收紧筛选）`);
+}
+
+/* ---------------- 初始化 ---------------- */
+["titleQ","contentQ","docNo","issuerQ"].forEach(id=>{
+  if($(id)) $(id).addEventListener("keydown", e=>{ if(e.key==="Enter") doSearch(1); });
+});
+(async function init(){
+  /* 表单挪进右侧主列：与结果栏同宽、位于结果列表上方 */
+  document.querySelector(".main-col").insertBefore(document.querySelector(".adv"), document.querySelector(".results"));
+  bindScope();
+  const f = await (await fetch("/api/filters")).json();
+  S.filters = f;
+  const st = await (await fetch("/api/stats")).json();
+  $("statLine").textContent = ` ${st.total} 条 · ${st.categories} 专题`;
+  renderSide();
+  doSearch();
+})();
+</script>
+</body>
+</html>
